@@ -493,6 +493,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
                     int deviceOrientation = _sensorOrientationChecker.getOrientation();
                     _sensorOrientationChecker.unregisterOrientationListener();
                     _sensorOrientationChecker.onPause();
+                    Log.d("Orientation", deviceOrientation + "");
                     captureWithOrientation(options, promise, deviceOrientation);
                 }
             });
@@ -501,7 +502,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
         }
     }
 
-    private void captureWithOrientation(final ReadableMap options, final Promise promise, int deviceOrientation) {
+    private void captureWithOrientation(final ReadableMap options, final Promise promise, final int deviceOrientation) {
         Camera camera = RCTCamera.getInstance().acquireCameraInstance(options.getInt("type"));
         if (null == camera) {
             promise.reject("No camera found.");
@@ -536,7 +537,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
                 AsyncTask.execute(new Runnable() {
                     @Override
                     public void run() {
-                        processImage(new MutableImage(data), options, promise);
+                        processImage(new MutableImage(data), options, promise, deviceOrientation);
                     }
                 });
 
@@ -558,7 +559,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
      * synchronized in order to prevent the user crashing the app by taking many photos and them all being processed
      * concurrently which would blow the memory (esp on smaller devices), and slow things down.
      */
-    private synchronized void processImage(MutableImage mutableImage, ReadableMap options, Promise promise) {
+    private synchronized void processImage(MutableImage mutableImage, ReadableMap options, Promise promise, int orientation) {
         boolean shouldFixOrientation = options.hasKey("fixOrientation") && options.getBoolean("fixOrientation");
         if(shouldFixOrientation) {
             try {
@@ -587,6 +588,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
                 String encoded = mutableImage.toBase64(jpegQualityPercent);
                 WritableMap response = new WritableNativeMap();
                 response.putString("data", encoded);
+                response.putInt("orientation", orientation);
                 promise.resolve(response);
                 break;
             case RCT_CAMERA_CAPTURE_TARGET_CAMERA_ROLL: {
@@ -598,14 +600,14 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
 
                 try {
                     mutableImage.writeDataToFile(cameraRollFile, options, jpegQualityPercent);
-                } catch (IOException | NullPointerException e) {
+                } catch (IOException e) {
                     promise.reject("failed to save image file", e);
                     return;
                 }
 
                 addToMediaStore(cameraRollFile.getAbsolutePath());
 
-                resolveImage(cameraRollFile, promise, true);
+                resolveImage(cameraRollFile, promise, true, orientation);
 
                 break;
             }
@@ -623,7 +625,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
                     return;
                 }
 
-                resolveImage(pictureFile, promise, false);
+                resolveImage(pictureFile, promise, false, orientation);
 
                 break;
             }
@@ -641,7 +643,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
                     return;
                 }
 
-                resolveImage(tempFile, promise, false);
+                resolveImage(tempFile, promise, false, orientation);
 
                 break;
             }
@@ -764,9 +766,10 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
         // ... do nothing
     }
 
-    private void resolveImage(final File imageFile, final Promise promise, boolean addToMediaStore) {
+    private void resolveImage(final File imageFile, final Promise promise, boolean addToMediaStore, int orientation) {
         final WritableMap response = new WritableNativeMap();
         response.putString("path", Uri.fromFile(imageFile).toString());
+        response.putInt("orientation", orientation);
 
         if(addToMediaStore) {
             // borrowed from react-native CameraRollManager, it finds and returns the 'internal'
